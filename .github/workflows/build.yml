@@ -1,28 +1,51 @@
-name: Build Godot Windows Complete
+name: Build Godot Windows Template
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Godot version'
+        required: true
+        default: '4.5.1-stable'
 
 jobs:
   build:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout Godot
+    - name: Checkout Godot source
       uses: actions/checkout@v3
       with:
         repository: godotengine/godot
-        ref: '4.5.1-stable'
+        ref: ${{ github.event.inputs.version }}
         submodules: 'recursive'
         
-    - name: Install everything needed
+    - name: Install MinGW with POSIX threads
       run: |
         sudo apt-get update
+        # Instalar MinGW con soporte POSIX
         sudo apt-get install -y \
           build-essential \
           scons \
           pkg-config \
           mingw-w64 \
+          mingw-w64-tools \
+          binutils-mingw-w64 \
+          g++-mingw-w64
+        
+        # Configurar POSIX threads como predeterminado
+        sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
+        sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
+        sudo update-alternatives --set x86_64-w64-mingw32-gcc-nm /usr/bin/x86_64-w64-mingw32-gcc-nm-posix
+        sudo update-alternatives --set x86_64-w64-mingw32-gfortran /usr/bin/x86_64-w64-mingw32-gfortran-posix
+        
+        # Verificar que está configurado correctamente
+        x86_64-w64-mingw32-g++ --version
+        echo "MinGW configured with POSIX threads"
+        
+    - name: Install other dependencies
+      run: |
+        sudo apt-get install -y \
           python3-pip \
           libx11-dev \
           libxcursor-dev \
@@ -33,80 +56,78 @@ jobs:
           libpulse-dev \
           libudev-dev \
           libgl1-mesa-dev \
-          libglu1-mesa-dev
+          libglu1-mesa-dev \
+          libfontconfig-dev \
+          libfreetype-dev
         
     - name: Generate encryption key
       id: gen_key
       run: |
         echo "key=$(openssl rand -hex 32)" >> $GITHUB_OUTPUT
+        echo "ENCRYPTION_KEY generated successfully"
         
     - name: Build Windows 64-bit Release
       run: |
+        echo "Starting 64-bit Release build..."
+        
         scons platform=windows \
           target=template_release \
           bits=64 \
           use_mingw=yes \
           builtin_brotli=yes \
           builtin_freetype=yes \
+          builtin_msdfgen=yes \
           verbose=yes \
           progress=yes \
-          -j$(nproc)
+          -j2
+        
+        echo "Build completed successfully!"
         cp bin/godot.windows.template_release.x86_64.exe template_release_64.exe
+        ls -la bin/
         
-    - name: Build Windows 32-bit Release
+    - name: Create installation package
       run: |
-        scons platform=windows \
-          target=template_release \
-          bits=32 \
-          use_mingw=yes \
-          builtin_brotli=yes \
-          builtin_freetype=yes \
-          verbose=yes \
-          progress=yes \
-          -j$(nproc)
-        cp bin/godot.windows.template_release.x86_32.exe template_release_32.exe
+        # Crear archivo de instrucciones
+        cat > INSTALL.txt << 'EOF'
+        ===========================================
+        GODOT WINDOWS TEMPLATE 4.5.1
+        ===========================================
         
-    - name: Build Windows 64-bit Debug
-      run: |
-        scons platform=windows \
-          target=template_debug \
-          bits=64 \
-          use_mingw=yes \
-          builtin_brotli=yes \
-          builtin_freetype=yes \
-          verbose=yes \
-          progress=yes \
-          -j$(nproc)
-        cp bin/godot.windows.template_debug.x86_64.exe template_debug_64.exe
+        IMPORTANTE: GUARDA ESTA CLAVE DE ENCRIPTACIÓN
+        Clave: ${{ steps.gen_key.outputs.key }}
         
-    - name: Create instructions
-      run: |
-        echo "ENCRYPTION_KEY=${{ steps.gen_key.outputs.key }}" > !!!IMPORTANT_KEY!!!.txt
-        echo "" >> !!!IMPORTANT_KEY!!!.txt
-        echo "=== GODOT WINDOWS TEMPLATES ===" >> !!!IMPORTANT_KEY!!!.txt
-        echo "Version: 4.5.1" >> !!!IMPORTANT_KEY!!!.txt
-        echo "Build date: $(date)" >> !!!IMPORTANT_KEY!!!.txt
-        echo "" >> !!!IMPORTANT_KEY!!!.txt
-        echo "Files:" >> !!!IMPORTANT_KEY!!!.txt
-        echo "- template_release_64.exe: Windows 64-bit (Release)" >> !!!IMPORTANT_KEY!!!.txt
-        echo "- template_release_32.exe: Windows 32-bit (Release)" >> !!!IMPORTANT_KEY!!!.txt
-        echo "- template_debug_64.exe: Windows 64-bit (Debug)" >> !!!IMPORTANT_KEY!!!.txt
-        echo "" >> !!!IMPORTANT_KEY!!!.txt
-        echo "Installation:" >> !!!IMPORTANT_KEY!!!.txt
-        echo "1. Copy .exe files to:" >> !!!IMPORTANT_KEY!!!.txt
-        echo "   Windows: %%APPDATA%%\\Godot\\export_templates\\4.5.1.stable\\" >> !!!IMPORTANT_KEY!!!.txt
-        echo "   Linux: ~/.local/share/godot/export_templates/4.5.1.stable/" >> !!!IMPORTANT_KEY!!!.txt
-        echo "   macOS: ~/Library/Application Support/Godot/export_templates/4.5.1.stable/" >> !!!IMPORTANT_KEY!!!.txt
-        echo "" >> !!!IMPORTANT_KEY!!!.txt
-        echo "2. Rename files to:" >> !!!IMPORTANT_KEY!!!.txt
-        echo "   - windows_64_release.exe" >> !!!IMPORTANT_KEY!!!.txt
-        echo "   - windows_32_release.exe" >> !!!IMPORTANT_KEY!!!.txt
-        echo "   - windows_64_debug.exe" >> !!!IMPORTANT_KEY!!!.txt
+        INSTALACIÓN:
+        1. Copia los archivos .exe a la carpeta:
         
-    - name: Upload all templates
+           Windows:
+           C:\Users\[TU_USUARIO]\AppData\Roaming\Godot\export_templates\4.5.1.stable\
+        
+           Linux/Mac:
+           ~/.local/share/godot/export_templates/4.5.1.stable/
+        
+        2. Renombra los archivos:
+           template_release_64.exe → windows_64_release.exe
+        
+        3. En Godot Editor:
+           - Ve a Editor → Editor Settings → Export → Templates
+           - Asegúrate que la ruta es correcta
+        
+        USO DE ENCRIPCIÓN:
+        1. Al exportar tu juego, en la pestaña "Encryption"
+        2. Pega la clave de arriba
+        3. Marca "Encrypt PCK"
+        
+        ===========================================
+        EOF
+        
+        # Reemplazar la clave en el archivo
+        sed -i "s/\${{ steps.gen_key.outputs.key }}/${{ steps.gen_key.outputs.key }}/g" INSTALL.txt
+        
+    - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: godot-windows-templates-4.5.1
+        name: godot-windows-template-4.5.1
         path: |
-          template_*.exe
-          !!!IMPORTANT_KEY!!!.txt
+          template_release_64.exe
+          INSTALL.txt
+        retention-days: 90
