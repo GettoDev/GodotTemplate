@@ -1,11 +1,11 @@
-name: Build Godot Windows Template
+name: Build Godot Windows (Ubuntu 24.04)
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest  # Ubuntu 24.04
     
     steps:
     - name: Checkout Godot source
@@ -15,44 +15,46 @@ jobs:
         ref: '4.5.1-stable'
         submodules: 'recursive'
         
-    - name: Install and configure MinGW with POSIX threads
+    - name: Install MinGW POSIX for Ubuntu 24.04
       run: |
         sudo apt-get update
         
-        # 1. REMOVER cualquier instalación previa de MinGW que cause conflicto
-        sudo apt-get remove --purge -y mingw-w64* || true
+        # En Ubuntu 24.04, los paquetes tienen nombres diferentes
+        # Instalar TODAS las versiones y luego configurar POSIX
         
-        # 2. Instalar SOLO las versiones POSIX explícitamente
+        echo "=== Instalando MinGW en Ubuntu 24.04 ==="
         sudo apt-get install -y \
           build-essential \
           scons \
           pkg-config \
-          g++-mingw-w64-posix \
-          gcc-mingw-w64-posix \
-          binutils-mingw-w64 \
-          mingw-w64-common \
-          mingw-w64-tools \
-          python3
+          mingw-w64 \
+          g++-mingw-w64 \
+          gcc-mingw-w64 \
+          binutils-mingw-w64
         
-        # 3. Forzar POSIX como predeterminado (IMPORTANTE)
-        sudo update-alternatives --install /usr/bin/x86_64-w64-mingw32-gcc x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix 100
-        sudo update-alternatives --install /usr/bin/x86_64-w64-mingw32-g++ x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix 100
-        sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
-        sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
+        echo "=== Listando archivos MinGW disponibles ==="
+        ls -la /usr/bin/*mingw* 2>/dev/null || true
         
-        # 4. Verificar la configuración
-        echo "=== VERIFICANDO CONFIGURACIÓN ==="
-        ls -la /usr/bin/*mingw*posix*
-        update-alternatives --query x86_64-w64-mingw32-g++
-        update-alternatives --query x86_64-w64-mingw32-gcc
+        echo "=== Configurando POSIX threads ==="
+        # En Ubuntu 24.04, debemos usar los symlinks directamente
+        sudo rm -f /usr/bin/x86_64-w64-mingw32-g++
+        sudo rm -f /usr/bin/x86_64-w64-mingw32-gcc
         
-        # 5. Test de threads
-        echo "=== TEST DE THREADS ==="
-        x86_64-w64-mingw32-g++ -dumpspecs | grep -i thread || true
+        # Crear symlinks a las versiones POSIX
+        sudo ln -sf /usr/bin/x86_64-w64-mingw32-g++-posix /usr/bin/x86_64-w64-mingw32-g++
+        sudo ln -sf /usr/bin/x86_64-w64-mingw32-gcc-posix /usr/bin/x86_64-w64-mingw32-gcc
+        
+        echo "=== Verificando configuración ==="
+        ls -la /usr/bin/x86_64-w64-mingw32-g*
+        
+        echo "=== Probando compilador ==="
+        /usr/bin/x86_64-w64-mingw32-g++ --version || echo "Error testing compiler"
         
     - name: Install build dependencies
       run: |
+        echo "=== Instalando dependencias de build ==="
         sudo apt-get install -y \
+          python3 \
           libx11-dev \
           libxcursor-dev \
           libxi-dev \
@@ -62,25 +64,23 @@ jobs:
           libpulse-dev \
           libudev-dev \
           libgl1-mesa-dev \
-          libglu1-mesa-dev \
-          libfontconfig-dev \
-          libfreetype-dev
+          libglu1-mesa-dev
         
     - name: Generate encryption key
       id: gen_key
       run: |
         echo "key=$(openssl rand -hex 32)" >> $GITHUB_OUTPUT
-        echo "Encryption key generated and saved"
+        echo "Encryption key generated"
         
-    - name: Build Windows 64-bit Template
+    - name: Build Godot Windows Template
       run: |
-        echo "=== CONFIGURACIÓN DE BUILD ==="
-        echo "Compiler info:"
-        x86_64-w64-mingw32-g++ --version
-        echo ""
-        echo "Starting build..."
+        echo "=== INICIANDO BUILD DE GODOT ==="
+        echo "Fecha: $(date)"
+        echo "Ubuntu: $(lsb_release -d)"
+        echo "MinGW: $(x86_64-w64-mingw32-g++ --version | head -1)"
         
-        # Construir con parámetros optimizados
+        # Construir Godot
+        echo "Compilando..."
         scons platform=windows \
           target=template_release \
           bits=64 \
@@ -89,72 +89,69 @@ jobs:
           builtin_freetype=yes \
           verbose=yes \
           progress=yes \
-          deprecated=no \
-          disable_3d=no \
-          -j$(nproc)
+          -j2
         
         echo "=== BUILD COMPLETADO ==="
         
-        # Verificar y copiar resultado
+        # Verificar archivo
         if [ -f "bin/godot.windows.template_release.x86_64.exe" ]; then
-          cp bin/godot.windows.template_release.x86_64.exe godot_windows_64.exe
-          echo "✅ Template creado: godot_windows_64.exe"
-          echo "Tamaño: $(ls -lh godot_windows_64.exe | awk '{print $5}')"
+          cp bin/godot.windows.template_release.x86_64.exe godot_windows_template.exe
+          echo "✅ Template creado exitosamente"
+          echo "📏 Tamaño: $(stat -c%s godot_windows_template.exe) bytes"
         else
-          echo "❌ ERROR: Archivo no encontrado!"
-          echo "Contenido de bin/:"
-          ls -la bin/ || true
+          echo "❌ ERROR: No se encontró el archivo compilado"
+          echo "Contenido del directorio bin/:"
+          ls -la bin/ 2>/dev/null || echo "Directorio bin/ no existe"
           exit 1
         fi
         
-    - name: Create README with key
+    - name: Create documentation
       run: |
-        cat > !!!IMPORTANTE_CLAVE!!!.txt << 'EOF'
-        ╔══════════════════════════════════════════════════════════╗
-        ║                 CLAVE DE ENCRIPTACIÓN                    ║
-        ╠══════════════════════════════════════════════════════════╣
-        ║                                                          ║
-        ║  ${{ steps.gen_key.outputs.key }}  ║
-        ║                                                          ║
-        ║  ⚠️  ¡GUARDA ESTA CLAVE! Sin ella no podrás:            ║
-        ║     • Exportar juegos encriptados                        ║
-        ║     • Abrir archivos .pck encriptados                    ║
-        ║                                                          ║
-        ╚══════════════════════════════════════════════════════════╝
+        cat > INSTRUCCIONES.md << EOF
+        # Godot Windows Template 4.5.1
         
-        ==================== INSTRUCCIONES ====================
+        ## 🔑 Clave de Encriptación
+        \`\`\`
+        ${{ steps.gen_key.outputs.key }}
+        \`\`\`
         
-        1️⃣ INSTALAR TEMPLATE:
-           Copia "godot_windows_64.exe" a:
-           
-           Windows:
-           C:\Users\[TU_USUARIO]\AppData\Roaming\Godot\export_templates\4.5.1.stable\
-           
-           Linux/Mac:
-           ~/.local/share/godot/export_templates/4.5.1.stable/
-           
-           Renombra a: windows_64_release.exe
+        **¡GUARDA ESTA CLAVE!** Es necesaria para:
+        - Exportar juegos encriptados
+        - Acceder a archivos .pck encriptados
         
-        2️⃣ EN GODOT EDITOR:
-           • Ve a Editor → Editor Settings → Export → Templates
-           • Verifica que aparece la versión 4.5.1
+        ## 📁 Instalación
         
-        3️⃣ EXPORTAR CON ENCRIPCIÓN:
-           • Project → Export
-           • Selecciona "Windows Desktop"
-           • Pestaña "Encryption" → Pega la clave de arriba
-           • Marca "Encrypt PCK"
-           • Export Project
+        1. Copia \`godot_windows_template.exe\` a:
+           - **Windows**: \`%APPDATA%\\Godot\\export_templates\\4.5.1.stable\\\`
+           - **Linux/Mac**: \`~/.local/share/godot/export_templates/4.5.1.stable/\`
         
-        =======================================================
-        Godot 4.5.1 | Build: $(date) | Con soporte de encriptación
-        =======================================================
+        2. Renombra a: \`windows_64_release.exe\`
+        
+        3. En Godot Editor:
+           - Editor → Editor Settings → Export → Templates
+           - Verifica que aparece 4.5.1
+        
+        ## 🛡️ Uso de Encriptación
+        
+        1. Project → Export
+        2. Selecciona "Windows Desktop"
+        3. En pestaña "Encryption":
+           - Pega la clave de arriba
+           - Marca "Encrypt PCK"
+        4. Export Project
+        
+        ## 📊 Información del Build
+        - Godot: 4.5.1-stable
+        - Fecha: $(date)
+        - Sistema: Ubuntu 24.04
+        - Con encriptación: Sí
         EOF
         
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: godot-4.5.1-windows-template
+        name: godot-windows-4.5.1
         path: |
-          godot_windows_64.exe
-          !!!IMPORTANTE_CLAVE!!!.txt
+          godot_windows_template.exe
+          INSTRUCCIONES.md
+        retention-days: 90
