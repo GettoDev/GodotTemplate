@@ -1,21 +1,21 @@
-name: Build Godot Windows
+name: Build Godot Windows Complete
 
 on:
-  workflow_dispatch:  # Solo se ejecuta manualmente
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout Godot source
+    - name: Checkout Godot
       uses: actions/checkout@v3
       with:
         repository: godotengine/godot
         ref: '4.5.1-stable'
         submodules: 'recursive'
         
-    - name: Install dependencies
+    - name: Install everything needed
       run: |
         sudo apt-get update
         sudo apt-get install -y \
@@ -23,39 +23,90 @@ jobs:
           scons \
           pkg-config \
           mingw-w64 \
-          python3-pip
+          python3-pip \
+          libx11-dev \
+          libxcursor-dev \
+          libxi-dev \
+          libxinerama-dev \
+          libxrandr-dev \
+          libasound2-dev \
+          libpulse-dev \
+          libudev-dev \
+          libgl1-mesa-dev \
+          libglu1-mesa-dev
         
     - name: Generate encryption key
       id: gen_key
       run: |
         echo "key=$(openssl rand -hex 32)" >> $GITHUB_OUTPUT
-        echo "ENCRYPTION_KEY generated and saved to secret"
         
-    - name: Build Windows 64-bit
+    - name: Build Windows 64-bit Release
       run: |
-        # Export the encryption key
-        export ENCRYPTION_KEY="${{ steps.gen_key.outputs.key }}"
-        
-        # Build the template
         scons platform=windows \
           target=template_release \
           bits=64 \
           use_mingw=yes \
-          builtin_brotli=enabled \
+          builtin_brotli=yes \
+          builtin_freetype=yes \
           verbose=yes \
-          -j2
-          
-    - name: Save the template
-      run: |
-        # Rename and prepare for download
-        cp bin/godot.windows.template_release.x86_64.exe windows_template.exe
-        echo "ENCRYPTION_KEY=${{ steps.gen_key.outputs.key }}" > encryption_key.txt
-        echo "IMPORTANTE: Guarda esta clave para desencriptar tu juego" >> encryption_key.txt
+          progress=yes \
+          -j$(nproc)
+        cp bin/godot.windows.template_release.x86_64.exe template_release_64.exe
         
-    - name: Upload template
+    - name: Build Windows 32-bit Release
+      run: |
+        scons platform=windows \
+          target=template_release \
+          bits=32 \
+          use_mingw=yes \
+          builtin_brotli=yes \
+          builtin_freetype=yes \
+          verbose=yes \
+          progress=yes \
+          -j$(nproc)
+        cp bin/godot.windows.template_release.x86_32.exe template_release_32.exe
+        
+    - name: Build Windows 64-bit Debug
+      run: |
+        scons platform=windows \
+          target=template_debug \
+          bits=64 \
+          use_mingw=yes \
+          builtin_brotli=yes \
+          builtin_freetype=yes \
+          verbose=yes \
+          progress=yes \
+          -j$(nproc)
+        cp bin/godot.windows.template_debug.x86_64.exe template_debug_64.exe
+        
+    - name: Create instructions
+      run: |
+        echo "ENCRYPTION_KEY=${{ steps.gen_key.outputs.key }}" > !!!IMPORTANT_KEY!!!.txt
+        echo "" >> !!!IMPORTANT_KEY!!!.txt
+        echo "=== GODOT WINDOWS TEMPLATES ===" >> !!!IMPORTANT_KEY!!!.txt
+        echo "Version: 4.5.1" >> !!!IMPORTANT_KEY!!!.txt
+        echo "Build date: $(date)" >> !!!IMPORTANT_KEY!!!.txt
+        echo "" >> !!!IMPORTANT_KEY!!!.txt
+        echo "Files:" >> !!!IMPORTANT_KEY!!!.txt
+        echo "- template_release_64.exe: Windows 64-bit (Release)" >> !!!IMPORTANT_KEY!!!.txt
+        echo "- template_release_32.exe: Windows 32-bit (Release)" >> !!!IMPORTANT_KEY!!!.txt
+        echo "- template_debug_64.exe: Windows 64-bit (Debug)" >> !!!IMPORTANT_KEY!!!.txt
+        echo "" >> !!!IMPORTANT_KEY!!!.txt
+        echo "Installation:" >> !!!IMPORTANT_KEY!!!.txt
+        echo "1. Copy .exe files to:" >> !!!IMPORTANT_KEY!!!.txt
+        echo "   Windows: %%APPDATA%%\\Godot\\export_templates\\4.5.1.stable\\" >> !!!IMPORTANT_KEY!!!.txt
+        echo "   Linux: ~/.local/share/godot/export_templates/4.5.1.stable/" >> !!!IMPORTANT_KEY!!!.txt
+        echo "   macOS: ~/Library/Application Support/Godot/export_templates/4.5.1.stable/" >> !!!IMPORTANT_KEY!!!.txt
+        echo "" >> !!!IMPORTANT_KEY!!!.txt
+        echo "2. Rename files to:" >> !!!IMPORTANT_KEY!!!.txt
+        echo "   - windows_64_release.exe" >> !!!IMPORTANT_KEY!!!.txt
+        echo "   - windows_32_release.exe" >> !!!IMPORTANT_KEY!!!.txt
+        echo "   - windows_64_debug.exe" >> !!!IMPORTANT_KEY!!!.txt
+        
+    - name: Upload all templates
       uses: actions/upload-artifact@v4
       with:
-        name: godot-windows-template
+        name: godot-windows-templates-4.5.1
         path: |
-          windows_template.exe
-          encryption_key.txt
+          template_*.exe
+          !!!IMPORTANT_KEY!!!.txt
